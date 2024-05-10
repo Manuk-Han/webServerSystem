@@ -2,9 +2,12 @@ const express = require('express');
 const mysql = require('mysql2');
 const bodyParser = require('body-parser');
 const config = require('./config/db_config');
+const todoRoutes = require('./routes/todoRoutes');
 
 const app = express();
 const port = process.env.PORT || 3000;
+
+app.use('/', todoRoutes);
 
 const connection = mysql.createConnection(config.database);
 
@@ -74,6 +77,8 @@ app.delete('/delete/:id', (req, res) => {
     res.sendStatus(204);
   });
 });
+
+
 
 app.listen(port, () => {
   console.log(`Server is running on port ${port}`);
