@@ -23,8 +23,89 @@ connection.connect((err) => {
 app.use(bodyParser.urlencoded({ extended: true }));
 app.use(bodyParser.json());
 
+app.post('/signup', (req, res) => {
+  const { id, password } = req.body;
+  // 비밀번호 해싱
+  bcrypt.hash(password, 10, (err, hash) => {
+    if (err) {
+      res.status(500).json({ error: 'Password hashing failed' });
+      return;
+    }
+    // 사용자 정보 저장
+    const sql = 'INSERT INTO users (id, password) VALUES (?, ?)';
+    connection.query(sql, [id, hash], (err, result) => {
+      if (err) {
+        res.status(500).json({ error: err.message });
+        return;
+      }
+      res.status(200).json({ message: 'User signed up successfully' });
+    });
+  });
+});
+
+// 로그인 API
+app.post('/signin', (req, res) => {
+  const { id, password } = req.body;
+  // 사용자 확인
+  const sql = 'SELECT * FROM users WHERE id = ?';
+  connection.query(sql, [id], (err, results) => {
+    if (err) {
+      res.status(500).json({ error: err.message });
+      return;
+    }
+    if (results.length === 0) {
+      res.status(404).json({ error: 'User not found' });
+      return;
+    }
+    // 비밀번호 비교
+    bcrypt.compare(password, results[0].password, (err, result) => {
+      if (err || !result) {
+        res.status(401).json({ error: 'Authentication failed' });
+        return;
+      }
+      // JWT 토큰 생성
+      const accessToken = jwt.sign({ id }, 'accessSecret', { expiresIn: '5m' });
+      const refreshToken = jwt.sign({ id }, 'refreshSecret', { expiresIn: '14d' });
+      res.status(200).json({ accessToken, refreshToken });
+    });
+  });
+});
+
+// access token 갱신 API
+app.post('/refresh', (req, res) => {
+  const { refreshToken } = req.body;
+  // refresh token 검증
+  jwt.verify(refreshToken, 'refreshSecret', (err, decoded) => {
+    if (err) {
+      res.status(401).json({ error: 'Invalid refresh token' });
+      return;
+    }
+    // 새로운 access token 생성
+    const accessToken = jwt.sign({ id: decoded.id }, 'accessSecret', { expiresIn: '5m' });
+    res.status(200).json({ accessToken });
+  });
+});
+
+// 인증 미들웨어
+const auth = (req, res, next) => {
+  const accessToken = req.headers.authorization;
+  if (!accessToken) {
+    res.status(401).json({ error: 'Access token is required' });
+    return;
+  }
+  // access token 검증
+  jwt.verify(accessToken, 'accessSecret', (err, decoded) => {
+    if (err) {
+      res.status(401).json({ error: 'Invalid access token' });
+      return;
+    }
+    req.userId = decoded.id;
+    next();
+  });
+};
+
 // To-Do 항목 생성
-app.post('/create', (req, res) => {
+app.post('/create', auth, (req, res) => {
   const { title, content } = req.body;
   console.log(req.body.title);
 
@@ -39,7 +120,7 @@ app.post('/create', (req, res) => {
 });
 
 // To-Do 항목 읽기
-app.get('/read', (req, res) => {
+app.get('/read', auth, (req, res) => {
   connection.query('SELECT * FROM todo', (err, rows) => {
     if (err) {
       res.status(500).json({ error: err.message });
